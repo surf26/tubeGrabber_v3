@@ -1,0 +1,6 @@
+# hand survey 俯视：左架列 3-2-1，右架列 1-2-3；行 A 在图像下方
+rack:
+  cols: 3
+  rows: ["A", "B", "C", "D"]
+  board_split_x: null
+  map_slot_on_detect: true

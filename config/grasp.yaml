@@ -1,0 +1,12 @@
+grasp:
+  pre_offset_z: 0.08
+  touch_offset_z: 0.002
+  lift_offset_z: 0.12
+  gripper_open: 0.85
+  gripper_close: 0.0
+  speed_approach: 25
+  speed_grasp: 12
+  speed_lift: 25
+  approach_mode: vertical
+  tool_offset_z: 0.0
+  settle_after_approach_s: 0.3

@@ -1,0 +1,11 @@
+{
+  "mode": "eye_in_hand",
+  "description": "T_cam_end: hand 相机坐标系 → 末端法兰坐标系",
+  "matrix": [
+    [1.0, 0.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0, 0.0],
+    [0.0, 0.0, 1.0, 0.0],
+    [0.0, 0.0, 0.0, 1.0]
+  ],
+  "note": "请用 compute_calibration.py 从 data/ 标定数据生成并替换此单位阵"
+}

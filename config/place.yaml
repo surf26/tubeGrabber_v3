@@ -1,0 +1,11 @@
+place:
+  pre_offset_z: 0.08
+  touch_offset_z: 0.005
+  retract_offset_z: 0.10
+  gripper_open: 0.85
+  gripper_close: 0.0
+  speed_approach: 20
+  speed_place: 10
+  speed_retract: 25
+  settle_after_approach_s: 0.3
+  tool_offset_z: 0.0

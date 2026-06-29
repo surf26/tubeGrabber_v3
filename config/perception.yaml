@@ -1,0 +1,10 @@
+yolo:
+  model: "assets/model/survey_best.pt"
+  conf: 0.45
+  iou: 0.50
+  imgsz: 640
+  device: "cpu"
+  classes: ["tube", "empty"]
+
+survey:
+  depth_roi_radius_px: 12

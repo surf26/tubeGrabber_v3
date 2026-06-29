@@ -1,0 +1,15 @@
+display:
+  survey_window: "tubeGrabber v3 — Survey"
+  depth_window: "tubeGrabber v3 — Depth"
+  show_depth_panel: true
+  font_scale: 0.45
+  line_thickness: 2
+  refresh_hz: 30
+  show_base_coords: true
+  show_slot_id: true
+  snapshot_pause_s: 1.0
+  colors:
+    tube: [0, 255, 0]
+    empty: [255, 160, 0]
+    unknown: [0, 0, 255]
+    low_conf: [0, 255, 255]
