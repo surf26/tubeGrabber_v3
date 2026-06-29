@@ -30,3 +30,13 @@ class SurveyMotion:
     def wait_settle(self, seconds: float | None = None) -> None:
         s = seconds if seconds is not None else (self.cfg.settle_s if self.cfg else 0.5)
         time.sleep(s)
+
+    def is_at_survey(self, tol_deg: float = 2.0) -> bool:
+        """当前关节角是否仍在 survey 全景位（容差 tol_deg 度）。"""
+        target = self.cfg.joints_deg if self.cfg else None
+        if not target:
+            return False
+        current = self.arm.get_joint_angles_deg()
+        if not current or len(current) < 6:
+            return False
+        return all(abs(float(a) - float(b)) <= tol_deg for a, b in zip(current, target))

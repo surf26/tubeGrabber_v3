@@ -125,8 +125,16 @@ class DisplayConfig:
 class RackConfig:
     cols: int = 3
     rows: List[str] = field(default_factory=lambda: ["A", "B", "C", "D"])
+    # 图像下方→上方：左架 D C B A，右架 A B C D
+    left_rows: List[str] = field(default_factory=lambda: ["D", "C", "B", "A"])
+    right_rows: List[str] = field(default_factory=lambda: ["A", "B", "C", "D"])
     board_split_x: Optional[float] = None
     map_slot_on_detect: bool = True
+
+    def rows_for_board(self, board: str) -> List[str]:
+        if board == "left":
+            return self.left_rows or self.rows
+        return self.right_rows or self.rows
 
 
 @dataclass
@@ -278,9 +286,12 @@ def load_rack(path: Path | None = None) -> RackConfig:
         d = _load_yaml(p).get("rack", {})
     except ConfigError:
         d = {}
+    default_rows = ["A", "B", "C", "D"]
     return RackConfig(
         cols=int(d.get("cols", 3)),
-        rows=list(d.get("rows", ["A", "B", "C", "D"])),
+        rows=list(d.get("rows", default_rows)),
+        left_rows=list(d.get("left_rows", ["D", "C", "B", "A"])),
+        right_rows=list(d.get("right_rows", default_rows)),
         board_split_x=d.get("board_split_x"),
         map_slot_on_detect=bool(d.get("map_slot_on_detect", True)),
     )

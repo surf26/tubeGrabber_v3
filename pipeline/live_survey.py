@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 阶段 A + 阶段 B：先拍一张落表，再实时 YOLO 可视化。
+
+离 survey 位时进入编号追踪模式：24 孔编号/坐标以快照表为准，FOV 内可见孔用 live 更新。
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ from typing import Callable, Optional
 import cv2
 
 from pipeline.context import BoardSnapshot, SlotId
+from pipeline.slot_tracker import merge_snapshot_live, visible_in_frame
 from ui.overlays import render_snapshot
 
 
@@ -23,6 +26,7 @@ class LiveSurveyPipeline:
         detector,
         arm,
         board_store,
+        survey_motion=None,
         display_cfg=None,
         transfer_fn: Optional[Callable] = None,
         transfer_from: Optional[SlotId] = None,
@@ -33,6 +37,7 @@ class LiveSurveyPipeline:
         self.detector = detector
         self.arm = arm
         self.store = board_store
+        self.survey_motion = survey_motion
         self.cfg = display_cfg
         self.transfer_fn = transfer_fn
         self.transfer_from = transfer_from
@@ -41,6 +46,7 @@ class LiveSurveyPipeline:
     def run(self, *, no_rescan: bool = False) -> bool:
         print("[Live] 启动 hand survey 实时感知")
         print("  键: s 重拍落表 | t transfer | q 退出")
+        print("  离 survey 位后自动切换编号追踪（表内 slot_id 不变）")
 
         snap: Optional[BoardSnapshot] = None
         if no_rescan:
@@ -58,12 +64,18 @@ class LiveSurveyPipeline:
         self._live_loop(snap)
         return True
 
+    def _is_at_survey(self) -> bool:
+        if self.survey_motion is None:
+            return True
+        return self.survey_motion.is_at_survey()
+
     def _live_loop(self, snap: BoardSnapshot) -> None:
         cfg = self.cfg
         interval = 1.0 / max(cfg.refresh_hz, 1) if cfg else 1.0 / 30
         last_t = time.time()
         frame_count = 0
         fps = 0.0
+        was_at_survey = True
 
         while True:
             t0 = time.time()
@@ -84,9 +96,29 @@ class LiveSurveyPipeline:
                 frame_count = 0
                 last_t = t0
 
-            live = self.detector.build_live_frame(fp, T, snap.snapshot_id, fps=fps)
+            at_survey = self._is_at_survey()
+            if at_survey != was_at_survey:
+                mode = "全景实时" if at_survey else "编号追踪（离 survey 位）"
+                print(f"[Live] 模式切换 → {mode}")
+                was_at_survey = at_survey
+
+            live_raw = self.detector.build_live_frame(fp, T, snap.snapshot_id, fps=fps)
+
+            if at_survey:
+                merged = live_raw
+                overlay = None
+                show_panel = False
+            else:
+                merged = merge_snapshot_live(snap, live_raw)
+                overlay = visible_in_frame(live_raw.slots)
+                show_panel = True
+
             color_vis, depth_vis = render_snapshot(
-                fp.color, fp.depth, snap, cfg, live_frame=live,
+                fp.color, fp.depth, snap, cfg,
+                live_frame=merged,
+                overlay_slots=overlay,
+                at_survey=at_survey,
+                show_table_panel=show_panel,
             )
 
             cv2.imshow(cfg.survey_window, color_vis)
@@ -98,11 +130,15 @@ class LiveSurveyPipeline:
                 break
             if key == ord("s"):
                 print("[Live] 重拍落表...")
-                new_snap = self.survey.run(move_arm=False, save=True, show_ui=False)
+                new_snap = self.survey.run(
+                    move_arm=not at_survey,
+                    save=True,
+                    show_ui=False,
+                )
                 if new_snap:
                     snap = new_snap
             if key == ord("t"):
-                self._try_transfer()
+                self._try_transfer(at_survey)
 
             sleep_t = interval - (time.time() - t0)
             if sleep_t > 0:
@@ -110,7 +146,7 @@ class LiveSurveyPipeline:
 
         cv2.destroyAllWindows()
 
-    def _try_transfer(self) -> None:
+    def _try_transfer(self, at_survey: bool) -> None:
         if self.transfer_fn is None:
             print("[Live] 未配置 transfer（请用 CLI: transfer --from ... --to ...）")
             return
@@ -121,5 +157,5 @@ class LiveSurveyPipeline:
         self.transfer_fn(
             from_slot=self.transfer_from,
             to_slot=self.transfer_to,
-            rescan=False,
+            rescan=not at_survey,
         )

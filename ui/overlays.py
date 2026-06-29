@@ -69,17 +69,42 @@ def draw_board_header(
     slots: List[SlotRecord],
     fps: float = 0.0,
     live: bool = False,
+    tracking: bool = False,
+    at_survey: bool = True,
 ) -> None:
     tubes = sum(1 for s in slots if s.status == "tube")
     empties = sum(1 for s in slots if s.status == "empty")
     unknown = sum(1 for s in slots if s.status == "unknown")
     prefix = f"snapshot={snapshot_id}"
-    if live:
+    if tracking and not at_survey:
+        text = f"{prefix} | 追踪模式 | 表: tubes={tubes} empty={empties} | FPS={fps:.0f}"
+    elif live:
         text = f"{prefix} | FPS={fps:.0f} | live: tubes={tubes} empty={empties} unk={unknown}"
     else:
         text = f"{prefix} | tubes={tubes} empty={empties} unk={unknown}"
     cv2.putText(img, text, (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2, cv2.LINE_AA)
     cv2.putText(img, text, (8, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 255), 1, cv2.LINE_AA)
+    if tracking and not at_survey:
+        warn = "OFF-SURVEY: 全局视野丢失，编号以快照表追踪；仅绘制当前可见孔"
+        cv2.putText(img, warn, (8, 44), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 255, 255), 1, cv2.LINE_AA)
+
+
+def draw_slot_table_panel(img: np.ndarray, slots: List[SlotRecord], x: int = 8, y0: int = 60) -> None:
+    """右侧/左侧文字面板：24 孔编号 + 状态（追踪模式用）。"""
+    line_h = 14
+    for i, rec in enumerate(slots):
+        y = y0 + i * line_h
+        if y > img.shape[0] - 10:
+            break
+        pb = rec.point_base
+        coord = f"({pb.x:.2f},{pb.y:.2f})" if pb else "—"
+        text = f"{rec.slot_id}: {rec.status:7s} {coord}"
+        color = (180, 180, 180)
+        if rec.status == "tube":
+            color = (0, 220, 0)
+        elif rec.status == "empty":
+            color = (0, 160, 255)
+        cv2.putText(img, text, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.32, color, 1, cv2.LINE_AA)
 
 
 def depth_to_colormap(depth_m: np.ndarray) -> np.ndarray:
@@ -113,18 +138,32 @@ def render_snapshot(
     snap: BoardSnapshot,
     cfg: DisplayConfig,
     live_frame: Optional[LiveFrame] = None,
+    overlay_slots: Optional[List[SlotRecord]] = None,
+    at_survey: bool = True,
+    show_table_panel: bool = False,
 ) -> tuple:
-    """返回 (color_vis, depth_vis)。"""
-    slots = live_frame.slots if live_frame else snap.slots
+    """返回 (color_vis, depth_vis)。
+
+    overlay_slots: 实际画框的孔位；None 则用 live_frame/snap 全部。
+    at_survey=False 时只画当前可见孔，避免快照像素错位。
+    """
+    table_slots = live_frame.slots if live_frame else snap.slots
+    draw_slots = overlay_slots if overlay_slots is not None else table_slots
     sid = live_frame.snapshot_id if live_frame else snap.snapshot_id
     fps = live_frame.fps if live_frame else 0.0
     is_live = live_frame is not None
+    tracking = show_table_panel or (not at_survey and is_live)
 
     color_vis = color.copy()
-    for rec in slots:
+    for rec in draw_slots:
         draw_slot_record(color_vis, rec, cfg)
-    draw_board_header(color_vis, sid, slots, fps=fps, live=is_live)
+    draw_board_header(
+        color_vis, sid, table_slots, fps=fps, live=is_live,
+        tracking=tracking, at_survey=at_survey,
+    )
+    if show_table_panel:
+        draw_slot_table_panel(color_vis, table_slots, x=8, y0=58)
 
     depth_vis = depth_to_colormap(depth)
-    draw_depth_slots(depth_vis, slots, cfg)
+    draw_depth_slots(depth_vis, draw_slots, cfg)
     return color_vis, depth_vis

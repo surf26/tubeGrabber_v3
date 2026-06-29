@@ -145,6 +145,7 @@ class Container:
             detector=self.detector,
             arm=self.arm,
             board_store=self.board_store,
+            survey_motion=self.survey_motion,
             display_cfg=self.display_cfg,
             transfer_fn=self.transfer.run,
             transfer_from=transfer_from,

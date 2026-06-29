@@ -1,6 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""YOLO 检测 → 槽位编号（hand survey 俯视）。"""
+"""
+YOLO 检测 → 槽位编号（hand survey 俯视）
+
+hand 相机视角（与 rack.yaml 一致）：
+
+  左架 left          |  右架 right
+  列 3  2  1         |  列 1  2  3
+      A  (v小/上)    |      D  (v小/上)
+      B              |      C
+      C              |      B
+      D  (v大/下)    |      A  (v大/下)
+
+行：v 大 → ri=0 → rows[0]（最下行）；v 小 → ri=3 → rows[3]（最上行）
+列：左架 u 降序 → 3,2,1；右架 u 升序 → 1,2,3
+"""
 
 from __future__ import annotations
 
@@ -51,7 +65,7 @@ class SlotMapper:
             d.slot_id = slot_map.get(id(d))
 
     def _compute_slots(self, dets: List[RawDetection], board: str) -> Dict[int, SlotId]:
-        rows = self.rack.rows
+        rows = self.rack.rows_for_board(board)
         n_cols = self.rack.cols
         pts = [(d.pixel[0], d.pixel[1], d) for d in dets]
         if not pts:
