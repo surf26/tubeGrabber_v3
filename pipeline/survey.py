@@ -16,7 +16,7 @@ from drivers.camera import FramePacket
 from drivers.paths import BOARD_SNAPSHOTS_DIR
 from pipeline.context import BoardSnapshot
 from vision.geometry import median_depth_frames
-from ui.overlays import render_snapshot, setup_windows, show_frame
+from ui.overlays import render_snapshot, setup_windows, show_frame, show_mapping_table
 
 
 class SurveyPipeline:
@@ -135,12 +135,16 @@ class SurveyPipeline:
         if show_ui and self.display_cfg:
             cfg = self.display_cfg
             setup_windows(cfg)
+            raw = self.detector.detect_raw(fp)
             color_vis, depth_vis = render_snapshot(
                 fp.color, fp.depth, snap, cfg,
                 stage="snapshot",
                 split_x=self._split_x(),
+                raw_dets=raw,
             )
             show_frame(cfg, color_vis, depth_vis)
+            show_mapping_table(cfg, snap.slots, snap.snapshot_id)
+            print("[Survey] 映射表已保存 → data/board_latest.json")
             pause = pause_s if pause_s is not None else cfg.snapshot_pause_s
             self._wait_snapshot_ui(pause)
 

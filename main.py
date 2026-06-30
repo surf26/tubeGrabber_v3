@@ -30,20 +30,23 @@ def cmd_live(args, c):
 
 def cmd_preview(_args, c):
     from ui.overlays import destroy_windows
-    ok = c.live_survey.preview_loop()
+    action = c.live_survey.preview_loop(allow_scan=False)
     destroy_windows(c.display_cfg)
-    return ok
+    return action != "quit"
 
 
 def cmd_scan(args, c):
     from ui.overlays import destroy_windows
 
+    move_arm = True
     if c.display_cfg.preview_on_start:
-        if not c.live_survey.preview_loop():
+        action = c.live_survey.preview_loop()
+        if action == "quit":
             destroy_windows(c.display_cfg)
             return False
+        move_arm = action == "scan"
 
-    snap = c.survey.run(move_arm=True, save=True, show_ui=True, pause_s=0)
+    snap = c.survey.run(move_arm=move_arm, save=True, show_ui=True, pause_s=0)
     if snap and args.hold:
         import cv2
         print("[scan] 按任意键关闭窗口...")

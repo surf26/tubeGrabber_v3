@@ -4,12 +4,15 @@ display:
   combined_panel: true          # 彩色+深度拼在一个窗口
   show_depth_panel: true
   preview_on_start: true        # live/scan 启动先出相机画面
+  preview_detect: true          # 预览阶段也跑 YOLO 画框
   show_help: true
   show_slot_panel: true         # 实时显示右侧 24 孔表
+  show_mapping_table: true      # 拍照后弹出完整映射表窗口
+  mapping_table_window: "tubeGrabber v3 — 映射表"
   font_scale: 0.5
   line_thickness: 2
   refresh_hz: 30
-  show_base_coords: false       # 画面上不堆叠 base 坐标，看右侧面板
+  show_base_coords: true        # 映射表窗口显示基座坐标
   show_slot_id: true
   snapshot_pause_s: 0           # 0=按键继续，不自动关
   colors:

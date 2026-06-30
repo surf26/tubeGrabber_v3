@@ -11,6 +11,7 @@ import numpy as np
 
 from drivers.config_loader import DisplayConfig
 from pipeline.context import BoardSnapshot, LiveFrame, SlotRecord
+from vision.slot_mapper import RawDetection
 
 
 def draw_cross(img: np.ndarray, u: int, v: int, color, size: int = 8) -> None:
@@ -48,7 +49,7 @@ def _draw_text_block(
     x0, y0 = origin
     lh = int(22 * font_scale / 0.5)
     pad = 6
-    max_w = max(cv2.getTextSize(ln, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1, cv2.LINE_AA)[0][0] for ln in lines)
+    max_w = max(cv2.getTextSize(ln, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 1)[0][0] for ln in lines)
     box_h = len(lines) * lh + pad * 2
     box_w = max_w + pad * 2
     overlay = img.copy()
@@ -64,10 +65,10 @@ def draw_help_bar(img: np.ndarray, cfg: DisplayConfig, stage: str) -> None:
     if not cfg.show_help:
         return
     hints = {
-        "preview": "相机预览 | Enter/s=移臂拍照落表 | m=仅移臂 | q=退出",
-        "snapshot": "全局映射完成 | Enter=进入实时 | q=退出",
-        "live": "s=重拍 | t=transfer | q=退出",
-        "tracking": "追踪模式 | s=重拍 | t=transfer | q=退出",
+        "preview": "预览 | Enter/s=拍照落表 | m=移臂 | q=退出",
+        "snapshot": "映射完成 | Enter=实时 | q=退出",
+        "live": "s=回拍照位重拍 | m=移臂 | t=transfer | q=退出",
+        "tracking": "追踪 | s=回拍照位重拍 | m=移臂 | t=transfer | q=退出",
     }
     title = {
         "preview": "阶段0 — 相机预览",
@@ -81,6 +82,74 @@ def draw_help_bar(img: np.ndarray, cfg: DisplayConfig, stage: str) -> None:
         (8, 8),
         max(cfg.font_scale, 0.45),
     )
+
+
+def draw_raw_detection(img: np.ndarray, det: RawDetection, cfg: DisplayConfig) -> None:
+    """未映射或原始 YOLO 框。"""
+    colors = cfg.colors
+    if det.class_name == "tube":
+        color = tuple(colors.get("tube", [0, 255, 0]))
+    elif det.class_name == "empty":
+        color = tuple(colors.get("empty", [0, 165, 255]))
+    else:
+        color = tuple(colors.get("unknown", [0, 0, 255]))
+
+    x1, y1, x2, y2 = [int(v) for v in det.bbox]
+    cv2.rectangle(img, (x1, y1), (x2, y2), color, cfg.line_thickness)
+    label = f"{det.class_name} {det.confidence:.2f}"
+    if det.slot_id is not None:
+        label = f"{det.slot_id} {label}"
+    ty = max(y1 - 6, 16)
+    cv2.putText(img, label, (x1, ty), cv2.FONT_HERSHEY_SIMPLEX, cfg.font_scale * 0.8, color, 2, cv2.LINE_AA)
+
+
+def draw_status_banner(img: np.ndarray, text: str, color=(0, 200, 255)) -> None:
+    _draw_text_block(img, [text], (8, img.shape[0] // 2 - 20), 0.55, color=color, bg_alpha=0.7)
+
+
+def build_mapping_table_image(
+    slots: List[SlotRecord],
+    snapshot_id: str = "",
+    *,
+    font_scale: float = 0.42,
+) -> np.ndarray:
+    """独立映射表图像：slot / status / conf / base xyz。"""
+    row_h = 18
+    header_h = 56
+    w, h = 760, header_h + 24 * row_h + 16
+    img = np.full((h, w, 3), 28, dtype=np.uint8)
+
+    title = f"24-SLOT MAP  id={snapshot_id}" if snapshot_id else "24-SLOT MAP"
+    cv2.putText(img, title, (10, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (220, 220, 220), 1, cv2.LINE_AA)
+    hdr = f"{'SLOT':<14}{'STATUS':<8}{'CONF':>6}   {'BASE_X':>8} {'BASE_Y':>8} {'BASE_Z':>8}"
+    cv2.putText(img, hdr, (10, 44), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (140, 200, 255), 1, cv2.LINE_AA)
+    cv2.line(img, (8, 50), (w - 8, 50), (80, 80, 80), 1)
+
+    for i, rec in enumerate(slots):
+        y = header_h + i * row_h
+        if rec.status == "tube":
+            color = (0, 220, 0)
+        elif rec.status == "empty":
+            color = (0, 160, 255)
+        else:
+            color = (120, 120, 120)
+        conf = f"{rec.confidence:.2f}" if rec.confidence > 0 else "  —  "
+        if rec.point_base:
+            pb = rec.point_base
+            coord = f"{pb.x:8.4f} {pb.y:8.4f} {pb.z:8.4f}"
+        else:
+            coord = "     —        —        —"
+        line = f"{str(rec.slot_id):<14}{rec.status:<8}{conf:>6}   {coord}"
+        cv2.putText(img, line, (10, y), cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, 1, cv2.LINE_AA)
+
+    return img
+
+
+def show_mapping_table(cfg: DisplayConfig, slots: List[SlotRecord], snapshot_id: str = "") -> None:
+    if not cfg.show_mapping_table:
+        return
+    table = build_mapping_table_image(slots, snapshot_id, font_scale=cfg.font_scale * 0.85)
+    cv2.imshow(cfg.mapping_table_window, table)
 
 
 def draw_slot_record(img: np.ndarray, rec: SlotRecord, cfg: DisplayConfig) -> None:
@@ -194,6 +263,52 @@ def compose_panels(color: np.ndarray, depth: np.ndarray) -> np.ndarray:
     return np.hstack([color, depth])
 
 
+def render_detect_preview(
+    color: np.ndarray,
+    depth: np.ndarray,
+    cfg: DisplayConfig,
+    raw_dets: List[RawDetection],
+    live_slots: Optional[List[SlotRecord]] = None,
+    *,
+    split_x: Optional[float] = None,
+    snapshot_id: str = "preview",
+    fps: float = 0.0,
+    status_text: Optional[str] = None,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """预览/实时：YOLO 原始框 + 已映射孔位。"""
+    color_vis = color.copy()
+    if split_x is not None:
+        draw_rack_split(color_vis, split_x)
+
+    for det in raw_dets:
+        draw_raw_detection(color_vis, det, cfg)
+
+    slots = live_slots or []
+    for rec in slots:
+        if rec.bbox and rec.status != "unknown":
+            draw_slot_record(color_vis, rec, cfg)
+
+    draw_help_bar(color_vis, cfg, "preview")
+    draw_stats_bar(color_vis, snapshot_id, slots, fps=fps, stage="preview")
+    if cfg.show_slot_panel and slots:
+        draw_slot_table_panel(color_vis, slots, font_scale=cfg.font_scale * 0.75)
+    if status_text:
+        draw_status_banner(color_vis, status_text)
+
+    depth_vis = depth_to_colormap(depth)
+    for det in raw_dets:
+        u, v = int(det.pixel[0]), int(det.pixel[1])
+        if det.class_name == "tube":
+            c = tuple(cfg.colors.get("tube", [0, 255, 0]))
+        else:
+            c = tuple(cfg.colors.get("empty", [0, 165, 255]))
+        cv2.circle(depth_vis, (u, v), 4, c, -1)
+    if split_x is not None:
+        draw_rack_split(depth_vis, split_x)
+
+    return color_vis, depth_vis
+
+
 def render_preview(color: np.ndarray, depth: np.ndarray, cfg: DisplayConfig) -> np.ndarray:
     """原始相机画面（无检测框）。"""
     vis = color.copy()
@@ -215,6 +330,7 @@ def render_snapshot(
     show_table_panel: Optional[bool] = None,
     split_x: Optional[float] = None,
     stage: str = "live",
+    raw_dets: Optional[List[RawDetection]] = None,
 ) -> Tuple[np.ndarray, np.ndarray]:
     table_slots = live_frame.slots if live_frame else snap.slots
     draw_slots = overlay_slots if overlay_slots is not None else table_slots
@@ -225,6 +341,10 @@ def render_snapshot(
     color_vis = color.copy()
     if split_x is not None:
         draw_rack_split(color_vis, split_x)
+
+    if raw_dets:
+        for det in raw_dets:
+            draw_raw_detection(color_vis, det, cfg)
 
     for rec in draw_slots:
         draw_slot_record(color_vis, rec, cfg)
@@ -256,16 +376,23 @@ def show_frame(
         cv2.imshow(cfg.survey_window, color_vis)
         if cfg.show_depth_panel and depth_vis is not None:
             cv2.imshow(cfg.depth_window, depth_vis)
-    return cv2.waitKey(1) & 0xFF
+    return cv2.waitKey(30) & 0xFF
 
 
 def setup_windows(cfg: DisplayConfig) -> None:
     cv2.namedWindow(cfg.survey_window, cv2.WINDOW_NORMAL)
     if not cfg.combined_panel and cfg.show_depth_panel:
         cv2.namedWindow(cfg.depth_window, cv2.WINDOW_NORMAL)
+    if cfg.show_mapping_table:
+        cv2.namedWindow(cfg.mapping_table_window, cv2.WINDOW_NORMAL)
 
 
 def destroy_windows(cfg: DisplayConfig) -> None:
     cv2.destroyWindow(cfg.survey_window)
     if not cfg.combined_panel and cfg.show_depth_panel:
         cv2.destroyWindow(cfg.depth_window)
+    if cfg.show_mapping_table:
+        try:
+            cv2.destroyWindow(cfg.mapping_table_window)
+        except cv2.error:
+            pass

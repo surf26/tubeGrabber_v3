@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import time
-from typing import Callable, Optional
+from typing import Callable, Literal, Optional
 
 import cv2
 
@@ -17,11 +17,14 @@ from pipeline.context import BoardSnapshot, SlotId
 from pipeline.slot_tracker import merge_snapshot_live, visible_in_frame
 from ui.overlays import (
     destroy_windows,
-    render_preview,
+    render_detect_preview,
     render_snapshot,
     setup_windows,
     show_frame,
+    show_mapping_table,
 )
+
+PreviewAction = Literal["quit", "scan", "capture"]
 
 
 class LiveSurveyPipeline:
@@ -48,6 +51,7 @@ class LiveSurveyPipeline:
         self.transfer_fn = transfer_fn
         self.transfer_from = transfer_from
         self.transfer_to = transfer_to
+        self._move_status: Optional[str] = None
 
     def _split_x(self) -> float:
         sm = getattr(self.detector, "slot_mapper", None)
@@ -55,49 +59,119 @@ class LiveSurveyPipeline:
             return float(sm.split_x)
         return 320.0
 
-    def preview_loop(self) -> bool:
-        """阶段 0：先出相机画面。返回 True=继续，False=退出。"""
+    def _key_pressed(self, key: int, *chars: str) -> bool:
+        if key == 255:
+            return False
+        if key in (13, 10) and "\n" in chars:
+            return True
+        ch = chr(key) if 0 < key < 128 else ""
+        return ch.lower() in {c.lower() for c in chars if len(c) == 1}
+
+    def _on_move_done(self, result) -> None:
+        if result.success:
+            self._move_status = "✓ 已到达 survey 拍照位"
+            print("[Move] ✓ 已到达 survey 拍照位")
+        else:
+            self._move_status = f"✗ 移臂失败: {result.message}"
+            print(f"[Move] ✗ {result.message}")
+
+    def _start_move_survey(self) -> None:
+        if self.survey_motion is None:
+            print("[Move] 未配置 survey_motion")
+            return
+        if self.survey_motion.is_moving:
+            self._move_status = "移臂进行中..."
+            return
+        self._move_status = "移臂中 → survey 拍照位..."
+        print("[Move] 后台移臂 → survey 位")
+        self.survey_motion.goto_survey_async(on_done=self._on_move_done)
+
+    def _detect_frame(self, fp, snapshot_id: str, fps: float = 0.0):
+        """YOLO 推理 + 24 孔 live 表（预览/实时共用）。"""
+        T = self.arm.get_T_base_end()
+        raw = self.detector.detect_raw(fp)
+        live = None
+        if T is not None:
+            live = self.detector.build_live_frame(fp, T, snapshot_id, fps=fps)
+        return raw, live
+
+    def preview_loop(self, *, allow_scan: bool = True) -> PreviewAction:
+        """阶段 0：相机 + YOLO。返回 quit / scan(先移臂) / capture(当前位拍)。"""
         cfg = self.cfg
         if cfg is None or not cfg.preview_on_start:
-            return True
+            return "scan"
 
         setup_windows(cfg)
-        print("[Preview] 相机预览")
-        print("  Enter / s → 移臂并拍照落表")
-        print("  m         → 仅移到 survey 位")
-        print("  q         → 退出")
+        split_x = self._split_x()
+        print("[Preview] 相机预览 + YOLO")
+        print("  Enter/s → 拍照落表（已在拍照位则直接拍）")
+        print("  m       → 移到 survey 拍照位")
+        print("  q       → 退出")
+
+        last_t = time.time()
+        frame_count = 0
+        fps = 0.0
 
         while True:
+            t0 = time.time()
             fp = self.camera.grab()
             if fp is None:
                 time.sleep(0.02)
                 continue
 
-            panel = render_preview(fp.color, fp.depth, cfg)
-            cv2.imshow(cfg.survey_window, panel)
-            key = cv2.waitKey(1) & 0xFF
+            frame_count += 1
+            if t0 - last_t >= 1.0:
+                fps = frame_count / (t0 - last_t)
+                frame_count = 0
+                last_t = t0
 
-            if key in (ord("q"), 27):
-                return False
-            if key in (ord("s"), 13, 10):
-                return True
-            if key == ord("m") and self.survey_motion is not None:
-                print("[Preview] 移到 survey 位...")
-                r = self.survey_motion.goto_survey()
-                if r.success:
-                    self.survey_motion.wait_settle()
-                    print("[Preview] ✓ 已到位")
-                else:
-                    print(f"[Preview] ✗ 移臂失败: {r.message}")
+            status = self._move_status
+            if self.survey_motion and self.survey_motion.is_moving:
+                status = status or "移臂中..."
+
+            raw, live = ([], None)
+            if cfg.preview_detect:
+                raw, live = self._detect_frame(fp, "preview", fps=fps)
+
+            if cfg.preview_detect and (raw or live):
+                slots = live.slots if live else []
+                color_vis, depth_vis = render_detect_preview(
+                    fp.color, fp.depth, cfg, raw,
+                    live_slots=slots,
+                    split_x=split_x,
+                    fps=fps,
+                    status_text=status,
+                )
+                key = show_frame(cfg, color_vis, depth_vis)
+            else:
+                from ui.overlays import render_preview
+                panel = render_preview(fp.color, fp.depth, cfg)
+                if status:
+                    from ui.overlays import draw_status_banner
+                    draw_status_banner(panel[:, : fp.color.shape[1]], status)
+                cv2.imshow(cfg.survey_window, panel)
+                key = cv2.waitKey(30) & 0xFF
+
+            if self._key_pressed(key, "q"):
+                return "quit"
+            if allow_scan and self._key_pressed(key, "s", "\n"):
+                if self._is_at_survey():
+                    return "capture"
+                return "scan"
+            if self._key_pressed(key, "m"):
+                self._start_move_survey()
 
     def run(self, *, no_rescan: bool = False, skip_preview: bool = False) -> bool:
         print("[Live] 启动 hand survey 实时感知")
-        print("  键: s 重拍落表 | t transfer | q 退出")
-        print("  离 survey 位后自动切换编号追踪（表内 slot_id 不变）")
+        print("  键: s 回拍照位重拍 | m 移臂 | t transfer | q 退出")
 
-        if not skip_preview and not self.preview_loop():
-            destroy_windows(self.cfg)
-            return False
+        move_arm_for_scan = True
+        if not skip_preview:
+            action = self.preview_loop()
+            if action == "quit":
+                destroy_windows(self.cfg)
+                return False
+            move_arm_for_scan = action == "scan"
 
         snap: Optional[BoardSnapshot] = None
         if no_rescan:
@@ -107,13 +181,18 @@ class LiveSurveyPipeline:
                 no_rescan = False
 
         if not no_rescan:
-            snap = self.survey.run(move_arm=True, save=True, show_ui=True)
+            snap = self.survey.run(
+                move_arm=move_arm_for_scan,
+                save=True,
+                show_ui=True,
+            )
             if snap is None:
                 destroy_windows(self.cfg)
                 return False
 
         assert snap is not None
         setup_windows(self.cfg)
+        show_mapping_table(self.cfg, snap.slots, snap.snapshot_id)
         self._live_loop(snap)
         destroy_windows(self.cfg)
         return True
@@ -157,7 +236,8 @@ class LiveSurveyPipeline:
                 print(f"[Live] 模式切换 → {mode}")
                 was_at_survey = at_survey
 
-            live_raw = self.detector.build_live_frame(fp, T, snap.snapshot_id, fps=fps)
+            raw, live_raw = self._detect_frame(fp, snap.snapshot_id, fps=fps)
+            assert live_raw is not None
 
             if at_survey:
                 merged = live_raw
@@ -176,21 +256,31 @@ class LiveSurveyPipeline:
                 show_table_panel=show_panel,
                 split_x=split_x,
                 stage="live",
+                raw_dets=raw,
             )
+            show_mapping_table(cfg, merged.slots, snap.snapshot_id)
 
             key = show_frame(cfg, color_vis, depth_vis)
-            if key == ord("q"):
+            if self._key_pressed(key, "q"):
                 break
-            if key == ord("s"):
-                print("[Live] 重拍落表...")
+            if self._key_pressed(key, "m"):
+                self._start_move_survey()
+            if self._key_pressed(key, "s"):
+                print("[Live] 回拍照位并重拍落表...")
+                if not at_survey:
+                    self._start_move_survey()
+                    if self.survey_motion:
+                        while self.survey_motion.is_moving:
+                            time.sleep(0.05)
                 new_snap = self.survey.run(
-                    move_arm=not at_survey,
+                    move_arm=not self._is_at_survey(),
                     save=True,
-                    show_ui=False,
+                    show_ui=True,
                 )
                 if new_snap:
                     snap = new_snap
-            if key == ord("t"):
+                    show_mapping_table(cfg, snap.slots, snap.snapshot_id)
+            if self._key_pressed(key, "t"):
                 self._try_transfer(at_survey)
 
             sleep_t = interval - (time.time() - t0)
