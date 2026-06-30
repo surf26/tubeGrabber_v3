@@ -5,7 +5,8 @@ tubeGrabber_v3 CLI
 
 命令：
     live [--no-rescan] [--from SLOT] [--to SLOT]
-    scan
+    scan [--hold]
+    preview          仅相机预览（不移臂）
     transfer --from left.A1 --to right.B2
     show-board
     record-survey
@@ -27,13 +28,27 @@ def cmd_live(args, c):
     return c.live_survey.run(no_rescan=args.no_rescan)
 
 
+def cmd_preview(_args, c):
+    from ui.overlays import destroy_windows
+    ok = c.live_survey.preview_loop()
+    destroy_windows(c.display_cfg)
+    return ok
+
+
 def cmd_scan(args, c):
-    import cv2
+    from ui.overlays import destroy_windows
+
+    if c.display_cfg.preview_on_start:
+        if not c.live_survey.preview_loop():
+            destroy_windows(c.display_cfg)
+            return False
+
     snap = c.survey.run(move_arm=True, save=True, show_ui=True, pause_s=0)
     if snap and args.hold:
+        import cv2
         print("[scan] 按任意键关闭窗口...")
         cv2.waitKey(0)
-        cv2.destroyAllWindows()
+    destroy_windows(c.display_cfg)
     return snap is not None
 
 
@@ -127,6 +142,7 @@ def parse_args():
     pt.add_argument("--no-rescan-after", action="store_true")
     pt.add_argument("--init-gripper", action="store_true")
 
+    sub.add_parser("preview", help="仅相机预览，不移臂")
     sub.add_parser("show-board", help="打印 24 孔位表")
     sub.add_parser("record-survey", help="示教 survey 关节角")
     sub.add_parser("check", help="硬件自检")
@@ -137,7 +153,7 @@ def parse_args():
 def main():
     args = parse_args()
     if not args.command:
-        print("子命令: live | scan | transfer | show-board | record-survey | check")
+        print("子命令: live | scan | preview | transfer | show-board | record-survey | check")
         sys.exit(1)
 
     from container import Container
@@ -162,7 +178,7 @@ def main():
             c.build_arm()
             sys.exit(0 if cmd_record_survey(args, c) else 1)
 
-        if args.command in ("live", "scan", "transfer", "record-survey"):
+        if args.command in ("live", "scan", "preview", "transfer", "record-survey"):
             from_slot = None
             to_slot = None
             if getattr(args, "transfer_from", None):
@@ -180,6 +196,7 @@ def main():
         handlers = {
             "live": cmd_live,
             "scan": cmd_scan,
+            "preview": cmd_preview,
             "transfer": cmd_transfer,
         }
         ok = handlers[args.command](args, c)

@@ -1,15 +1,19 @@
 display:
-  survey_window: "tubeGrabber v3 — Survey"
+  survey_window: "tubeGrabber v3"
   depth_window: "tubeGrabber v3 — Depth"
+  combined_panel: true          # 彩色+深度拼在一个窗口
   show_depth_panel: true
-  font_scale: 0.45
+  preview_on_start: true        # live/scan 启动先出相机画面
+  show_help: true
+  show_slot_panel: true         # 实时显示右侧 24 孔表
+  font_scale: 0.5
   line_thickness: 2
   refresh_hz: 30
-  show_base_coords: true
+  show_base_coords: false       # 画面上不堆叠 base 坐标，看右侧面板
   show_slot_id: true
-  snapshot_pause_s: 1.0
+  snapshot_pause_s: 0           # 0=按键继续，不自动关
   colors:
     tube: [0, 255, 0]
-    empty: [255, 160, 0]
+    empty: [0, 165, 255]
     unknown: [0, 0, 255]
     low_conf: [0, 255, 255]

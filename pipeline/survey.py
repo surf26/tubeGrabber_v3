@@ -13,10 +13,10 @@ from typing import List, Optional
 import cv2
 
 from drivers.camera import FramePacket
-from drivers.paths import BOARD_SNAPSHOTS_DIR, OUTPUTS_DIR
+from drivers.paths import BOARD_SNAPSHOTS_DIR
 from pipeline.context import BoardSnapshot
 from vision.geometry import median_depth_frames
-from ui.overlays import render_snapshot
+from ui.overlays import render_snapshot, setup_windows, show_frame
 
 
 class SurveyPipeline:
@@ -37,6 +37,12 @@ class SurveyPipeline:
         self.store = board_store
         self.survey_cfg = survey_cfg
         self.display_cfg = display_cfg
+
+    def _split_x(self) -> float:
+        sm = getattr(self.detector, "slot_mapper", None)
+        if sm is not None:
+            return float(sm.split_x)
+        return 320.0
 
     def _grab_snapshot_frame(self) -> Optional[FramePacket]:
         n = self.survey_cfg.snapshot_median_frames if self.survey_cfg else 3
@@ -62,6 +68,18 @@ class SurveyPipeline:
             timestamp=time.time(),
             camera_id=base.camera_id,
         )
+
+    def _wait_snapshot_ui(self, pause_s: float) -> None:
+        if pause_s > 0:
+            cv2.waitKey(int(pause_s * 1000))
+            return
+        print("[Survey] 按 Enter 继续实时 / q 退出定格")
+        while True:
+            key = cv2.waitKey(50) & 0xFF
+            if key in (13, 10, ord("s")):
+                break
+            if key in (ord("q"), 27):
+                break
 
     def run(
         self,
@@ -105,17 +123,25 @@ class SurveyPipeline:
 
         tubes = sum(1 for s in snap.slots if s.status == "tube")
         empties = sum(1 for s in snap.slots if s.status == "empty")
-        print(f"[Survey] ✓ snapshot={snap.snapshot_id}  tube={tubes} empty={empties}")
+        unknown = sum(1 for s in snap.slots if s.status == "unknown")
+        print(
+            f"[Survey] ✓ snapshot={snap.snapshot_id}  "
+            f"tube={tubes} empty={empties} unknown={unknown}"
+        )
 
         if save:
             self.store.save(snap)
 
         if show_ui and self.display_cfg:
-            pause = pause_s if pause_s is not None else self.display_cfg.snapshot_pause_s
-            color_vis, depth_vis = render_snapshot(fp.color, fp.depth, snap, self.display_cfg)
-            cv2.imshow(self.display_cfg.survey_window, color_vis)
-            if self.display_cfg.show_depth_panel:
-                cv2.imshow(self.display_cfg.depth_window, depth_vis)
-            cv2.waitKey(int(pause * 1000))
+            cfg = self.display_cfg
+            setup_windows(cfg)
+            color_vis, depth_vis = render_snapshot(
+                fp.color, fp.depth, snap, cfg,
+                stage="snapshot",
+                split_x=self._split_x(),
+            )
+            show_frame(cfg, color_vis, depth_vis)
+            pause = pause_s if pause_s is not None else cfg.snapshot_pause_s
+            self._wait_snapshot_ui(pause)
 
         return snap

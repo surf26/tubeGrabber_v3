@@ -104,9 +104,13 @@ class CalibPathsConfig:
 
 @dataclass
 class DisplayConfig:
-    survey_window: str = "tubeGrabber v3 — Survey"
+    survey_window: str = "tubeGrabber v3"
     depth_window: str = "tubeGrabber v3 — Depth"
+    combined_panel: bool = True
     show_depth_panel: bool = True
+    preview_on_start: bool = True
+    show_help: bool = True
+    show_slot_panel: bool = True
     font_scale: float = 0.45
     line_thickness: int = 2
     refresh_hz: int = 30
@@ -267,9 +271,13 @@ def load_display(path: Path | None = None) -> DisplayConfig:
     except ConfigError:
         d = {}
     return DisplayConfig(
-        survey_window=d.get("survey_window", "tubeGrabber v3 — Survey"),
+        survey_window=d.get("survey_window", "tubeGrabber v3"),
         depth_window=d.get("depth_window", "tubeGrabber v3 — Depth"),
+        combined_panel=bool(d.get("combined_panel", True)),
         show_depth_panel=bool(d.get("show_depth_panel", True)),
+        preview_on_start=bool(d.get("preview_on_start", True)),
+        show_help=bool(d.get("show_help", True)),
+        show_slot_panel=bool(d.get("show_slot_panel", True)),
         font_scale=float(d.get("font_scale", 0.45)),
         line_thickness=int(d.get("line_thickness", 2)),
         refresh_hz=int(d.get("refresh_hz", 30)),

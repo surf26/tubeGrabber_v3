@@ -1,6 +1,6 @@
-# 示教：python main.py record-survey
+# survey 俯视拍照位（关节角 度）
 survey:
-  joints_deg: null
-  settle_s: 0.5
-  speed: 25
-  snapshot_median_frames: 3
+  joints_deg: [8.939, 208.339, 350.591, -3.116, 0.079, -1.546]
+  settle_s: 0.8
+  speed: 20
+  snapshot_median_frames: 5

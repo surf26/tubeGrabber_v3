@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-阶段 A + 阶段 B：先拍一张落表，再实时 YOLO 可视化。
+阶段 A + 阶段 B：先相机预览 → 拍一张落表 → 实时 YOLO 可视化。
 
 离 survey 位时进入编号追踪模式：24 孔编号/坐标以快照表为准，FOV 内可见孔用 live 更新。
 """
@@ -15,7 +15,13 @@ import cv2
 
 from pipeline.context import BoardSnapshot, SlotId
 from pipeline.slot_tracker import merge_snapshot_live, visible_in_frame
-from ui.overlays import render_snapshot
+from ui.overlays import (
+    destroy_windows,
+    render_preview,
+    render_snapshot,
+    setup_windows,
+    show_frame,
+)
 
 
 class LiveSurveyPipeline:
@@ -43,10 +49,55 @@ class LiveSurveyPipeline:
         self.transfer_from = transfer_from
         self.transfer_to = transfer_to
 
-    def run(self, *, no_rescan: bool = False) -> bool:
+    def _split_x(self) -> float:
+        sm = getattr(self.detector, "slot_mapper", None)
+        if sm is not None:
+            return float(sm.split_x)
+        return 320.0
+
+    def preview_loop(self) -> bool:
+        """阶段 0：先出相机画面。返回 True=继续，False=退出。"""
+        cfg = self.cfg
+        if cfg is None or not cfg.preview_on_start:
+            return True
+
+        setup_windows(cfg)
+        print("[Preview] 相机预览")
+        print("  Enter / s → 移臂并拍照落表")
+        print("  m         → 仅移到 survey 位")
+        print("  q         → 退出")
+
+        while True:
+            fp = self.camera.grab()
+            if fp is None:
+                time.sleep(0.02)
+                continue
+
+            panel = render_preview(fp.color, fp.depth, cfg)
+            cv2.imshow(cfg.survey_window, panel)
+            key = cv2.waitKey(1) & 0xFF
+
+            if key in (ord("q"), 27):
+                return False
+            if key in (ord("s"), 13, 10):
+                return True
+            if key == ord("m") and self.survey_motion is not None:
+                print("[Preview] 移到 survey 位...")
+                r = self.survey_motion.goto_survey()
+                if r.success:
+                    self.survey_motion.wait_settle()
+                    print("[Preview] ✓ 已到位")
+                else:
+                    print(f"[Preview] ✗ 移臂失败: {r.message}")
+
+    def run(self, *, no_rescan: bool = False, skip_preview: bool = False) -> bool:
         print("[Live] 启动 hand survey 实时感知")
         print("  键: s 重拍落表 | t transfer | q 退出")
         print("  离 survey 位后自动切换编号追踪（表内 slot_id 不变）")
+
+        if not skip_preview and not self.preview_loop():
+            destroy_windows(self.cfg)
+            return False
 
         snap: Optional[BoardSnapshot] = None
         if no_rescan:
@@ -58,10 +109,13 @@ class LiveSurveyPipeline:
         if not no_rescan:
             snap = self.survey.run(move_arm=True, save=True, show_ui=True)
             if snap is None:
+                destroy_windows(self.cfg)
                 return False
 
         assert snap is not None
+        setup_windows(self.cfg)
         self._live_loop(snap)
+        destroy_windows(self.cfg)
         return True
 
     def _is_at_survey(self) -> bool:
@@ -76,6 +130,7 @@ class LiveSurveyPipeline:
         frame_count = 0
         fps = 0.0
         was_at_survey = True
+        split_x = self._split_x()
 
         while True:
             t0 = time.time()
@@ -107,7 +162,7 @@ class LiveSurveyPipeline:
             if at_survey:
                 merged = live_raw
                 overlay = None
-                show_panel = False
+                show_panel = cfg.show_slot_panel
             else:
                 merged = merge_snapshot_live(snap, live_raw)
                 overlay = visible_in_frame(live_raw.slots)
@@ -119,13 +174,11 @@ class LiveSurveyPipeline:
                 overlay_slots=overlay,
                 at_survey=at_survey,
                 show_table_panel=show_panel,
+                split_x=split_x,
+                stage="live",
             )
 
-            cv2.imshow(cfg.survey_window, color_vis)
-            if cfg.show_depth_panel:
-                cv2.imshow(cfg.depth_window, depth_vis)
-
-            key = cv2.waitKey(1) & 0xFF
+            key = show_frame(cfg, color_vis, depth_vis)
             if key == ord("q"):
                 break
             if key == ord("s"):
@@ -143,8 +196,6 @@ class LiveSurveyPipeline:
             sleep_t = interval - (time.time() - t0)
             if sleep_t > 0:
                 time.sleep(sleep_t)
-
-        cv2.destroyAllWindows()
 
     def _try_transfer(self, at_survey: bool) -> None:
         if self.transfer_fn is None:
