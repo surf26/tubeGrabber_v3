@@ -144,7 +144,7 @@ class YoloConfig:
     iou: float = 0.50
     imgsz: int = 640
     device: str = "cpu"
-    classes: List[str] = field(default_factory=lambda: ["tube", "empty"])
+    classes: List[str] = field(default_factory=lambda: ["empty", "tube"])
 
 
 @dataclass
@@ -309,7 +309,7 @@ def load_perception(path: Path | None = None) -> PerceptionConfig:
             iou=float(yolo_d.get("iou", 0.50)),
             imgsz=int(yolo_d.get("imgsz", 640)),
             device=yolo_d.get("device", "cpu"),
-            classes=list(yolo_d.get("classes", ["tube", "empty"])),
+            classes=list(yolo_d.get("classes", ["empty", "tube"])),
         ),
         survey=SurveyPerceptionConfig(
             depth_roi_radius_px=int(surv_d.get("depth_roi_radius_px", 12)),

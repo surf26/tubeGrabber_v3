@@ -4,7 +4,7 @@ yolo:
   iou: 0.50
   imgsz: 640
   device: "cpu"
-  classes: ["tube", "empty"]
+  classes: ["empty", "tube"]
 
 survey:
   depth_roi_radius_px: 12

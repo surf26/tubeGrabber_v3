@@ -35,7 +35,7 @@ class HandSurveyDetector:
         self.slot_mapper = slot_mapper
         self.project_root = project_root or Path(__file__).resolve().parent.parent
         self._yolo = None
-        self._class_names: List[str] = ["tube", "empty"]
+        self._class_names: List[str] = ["empty", "tube"]
 
     def _load_yolo(self):
         if self._yolo is not None:
@@ -87,7 +87,7 @@ class HandSurveyDetector:
             cid = int(box.cls[0])
             cname = names.get(cid, self._class_names[cid] if cid < len(self._class_names) else str(cid))
             if cname not in ("tube", "empty"):
-                cname = "tube" if cid == 0 else "empty"
+                cname = "empty" if cid == 0 else "tube"
             u = (x1 + x2) / 2.0
             v = (y1 + y2) / 2.0
             out.append(RawDetection(
