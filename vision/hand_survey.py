@@ -43,17 +43,12 @@ class HandSurveyDetector:
         from ultralytics import YOLO  # type: ignore
 
         ycfg = self.cfg.yolo if self.cfg else None
-        model_path = ycfg.model if ycfg else "assets/model/survey_best.pt"
+        model_path = ycfg.model if ycfg else "assets/model/last.pt"
         mp = Path(model_path)
         if not mp.is_absolute():
             mp = self.project_root / mp
         if not mp.is_file():
-            fallback = self.project_root / "assets/model/best.pt"
-            if fallback.is_file():
-                mp = fallback
-                print(f"[HandSurvey] survey_best.pt 缺失，回退 {fallback.name}")
-            else:
-                raise FileNotFoundError(f"YOLO 模型不存在: {mp}")
+            raise FileNotFoundError(f"YOLO 模型不存在: {mp}")
 
         device = ycfg.device if ycfg else "cpu"
         self._yolo = YOLO(str(mp))

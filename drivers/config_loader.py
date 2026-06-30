@@ -139,7 +139,7 @@ class RackConfig:
 
 @dataclass
 class YoloConfig:
-    model: str = "assets/model/survey_best.pt"
+    model: str = "assets/model/last.pt"
     conf: float = 0.45
     iou: float = 0.50
     imgsz: int = 640
@@ -304,7 +304,7 @@ def load_perception(path: Path | None = None) -> PerceptionConfig:
     surv_d = d.get("survey", {})
     return PerceptionConfig(
         yolo=YoloConfig(
-            model=yolo_d.get("model", "assets/model/survey_best.pt"),
+            model=yolo_d.get("model", "assets/model/last.pt"),
             conf=float(yolo_d.get("conf", 0.45)),
             iou=float(yolo_d.get("iou", 0.50)),
             imgsz=int(yolo_d.get("imgsz", 640)),

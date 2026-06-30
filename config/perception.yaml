@@ -1,9 +1,9 @@
 yolo:
-  model: "assets/model/survey_best.pt"
-  conf: 0.45
+  model: "assets/model/last.pt"
+  conf: 0.55
   iou: 0.50
   imgsz: 640
-  device: "cpu"
+  device: "cuda:0"
   classes: ["empty", "tube"]
 
 survey:

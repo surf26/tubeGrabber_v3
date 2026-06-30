@@ -57,8 +57,8 @@ tubeGrabber_v3/
   motion/              survey · grasp · place · safety
   state/               board_snapshot_store
   ui/                  OpenCV overlays
-  assets/calib/        T_cam_end.json
-  assets/model/        survey_best.pt
+  assets/calib/        T_cam_end.json（手眼标定）
+  assets/model/        last.pt
   data/                board_latest.json · board_snapshots/
 ```
 
